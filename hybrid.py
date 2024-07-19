@@ -19,7 +19,7 @@ def diffs(probas):
     return diffs
 
 
-def hybrid_search(commits, probabilities, alpha):
+def binary_search(commits):
     num_of_runs = 0
     len_commits = len(commits)
     low, high = 0, len_commits - 1
@@ -29,13 +29,43 @@ def hybrid_search(commits, probabilities, alpha):
 
     if state_of_first == 0 and state_of_last == 0:
         return -1, num_of_runs
+    
+    prev_mid = -1
+    while low < high:
+        print(f"num_of_runs: {num_of_runs}, low: {low}, high: {high}", end="")
+        mid = (low + high) // 2
+
+        num_of_runs += 1
+        if commits[mid] == 1:
+            high = mid
+
+        elif commits[mid] == 0:
+            low = mid + 1
+        
+        print(f", mid: {prev_mid}")
+        prev_mid = mid
+
+    return num_of_runs, high
+
+
+def hybrid_search(commits, probabilities, alpha):
+    num_of_runs = 0
+    len_commits = len(commits)
+    low, high = 0, len_commits - 1
+
+    state_of_first = get_value(commits, 0)
+    state_of_last = get_value(commits, len_commits - 1)
+
+    if state_of_first == 0 and state_of_last == 0:
+        print("HI!")
+        return -1, num_of_runs
 
     while low < high:
         binary_mid = (low + high) // 2
 
-        diffs = diffs(probabilities[low : high + 1], low)
+        diffs_arr = diffs(probabilities[low : high + 1])
 
-        prob_mid = np.argmin(diffs) + low
+        prob_mid = np.argmin(diffs_arr) + low
 
         new_mid = int(((alpha * prob_mid) + ((1 - alpha) * binary_mid)))
 
@@ -46,17 +76,9 @@ def hybrid_search(commits, probabilities, alpha):
         elif commits[new_mid] == 0:
             low = new_mid + 1
 
+        print(f"run: {num_of_runs}, low: {low}, mid: {prob_mid}, high: {high}")
+
     return num_of_runs, high
-
-
-CONFIG = {
-    "samples": 15000,
-    "features": 100,
-    "n_informative": 50,
-    "max_max_depth": 3,
-    "min_log_size": 8,
-    "max_log_size": 10,
-}
 
 
 # data generation
@@ -72,14 +94,14 @@ def get_preds_per_depth():
         n_informative=n_informative,
         n_clusters_per_class=1,
         n_classes=2,
-        weights=[0.999, 0.001],
+        weights=[0.997, 0.003],
         flip_y=0.02,
         random_state=42,
     )
 
     data = {}
     for max_depth in tqdm(
-        range(1, CONFIG["max_max_depth"] + 1), desc="Max Depth Progress", colour="green"
+        range(CONFIG["min_max_depth"], CONFIG["max_max_depth"] + 1), desc="Max Depth Progress", colour="green"
     ):
         model = RandomForestClassifier(
             n_estimators=100,
@@ -147,6 +169,10 @@ def transform_data(y, predictions):
     for chunk in chunks:
         y_chunk = chunk["y_chunk"]
         preds_chunk = chunk["preds_chunk"]
+        # Find the index of the single 1 in the chunk
+        y_transformed = y_chunk.copy()
+        y_transformed[np.argmax(y_chunk) + 1 :] = 1
+        chunk["y_transformed"] = y_transformed
         assert len(y_chunk) == len(preds_chunk)
         assert sum(y_chunk) == 1
 
@@ -154,7 +180,9 @@ def transform_data(y, predictions):
 
 
 def main():
+    print("Starting Hybrid Search")
     data = get_preds_per_depth()
+    print("Data Generation Complete")
     alpha = 0.5
 
     for max_depth, data_entries in data.items():
@@ -163,25 +191,42 @@ def main():
         chunks = transform_data(commits, preds)
         break
 
+    trials = 0
     for chunk in chunks:
         y_chunk = chunk["y_chunk"]
         preds_chunk = chunk["preds_chunk"]
+        y_transformed = chunk["y_transformed"]
 
-        print(y_chunk)
+        print(y_transformed)
+        print()
 
         # hybrid search
-        num_of_runs, index = hybrid_search(y_chunk, preds_chunk, alpha)
+        print("Binary Search")
+        hybrid_runs, hybrid_index = hybrid_search(y_transformed, preds_chunk, alpha)
 
         # compare with alpha = 0
-        binary_runs, index_ = hybrid_search(y_chunk, preds_chunk, 0)
+        print("\nHeruistic Search")
+        binary_runs, binary_index = binary_search(y_transformed)
 
         # assert they are the same index
-        assert index == index_
-        print(f"saved runs: {(num_of_runs - binary_runs)/100}")
-        print(f"heruistic Index: {index}")
-        print(f"binary Index: {index_}")
+        assert binary_index == hybrid_index
+        print(f"saved runs: {(binary_runs - hybrid_runs)/(binary_runs - 2)}")
+        trials += 1
+        print("\n\n")
+        if trials == 2:
+            break
 
-        break
+
+
+CONFIG = {
+    "samples": 40000,
+    "features": 100,
+    "n_informative": 50,
+    "min_max_depth": 50,
+    "max_max_depth": 50,
+    "min_log_size": 4,
+    "max_log_size": 7,
+}
 
 
 main()
