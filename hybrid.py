@@ -1,7 +1,10 @@
+import os
+
 import numpy as np
 from sklearn.datasets import make_classification
 from sklearn.ensemble import RandomForestClassifier
 from tqdm import tqdm
+import pandas as pd
 
 
 def get_value(y, index):
@@ -30,9 +33,10 @@ def binary_search(commits):
     if state_of_first == 0 and state_of_last == 0:
         return -1, num_of_runs
     
+    if CONFIG["print_detailed_search"]:
+        print(f"low: {low}, high: {high}")
     prev_mid = -1
     while low < high:
-        print(f"num_of_runs: {num_of_runs}, low: {low}, high: {high}", end="")
         mid = (low + high) // 2
 
         num_of_runs += 1
@@ -42,7 +46,8 @@ def binary_search(commits):
         elif commits[mid] == 0:
             low = mid + 1
         
-        print(f", mid: {prev_mid}")
+        if CONFIG["print_detailed_search"]:
+            print(f"runs: {num_of_runs}, low: {low}, mid: {prev_mid}, high: {high}")
         prev_mid = mid
 
     return num_of_runs, high
@@ -60,6 +65,9 @@ def hybrid_search(commits, probabilities, alpha):
         print("HI!")
         return -1, num_of_runs
 
+    if CONFIG["print_detailed_search"]:
+        print(f"low: {low}, high: {high}")
+    prev_new_mid = -1
     while low < high:
         binary_mid = (low + high) // 2
 
@@ -75,8 +83,10 @@ def hybrid_search(commits, probabilities, alpha):
 
         elif commits[new_mid] == 0:
             low = new_mid + 1
-
-        print(f"run: {num_of_runs}, low: {low}, mid: {prob_mid}, high: {high}")
+        
+        if CONFIG["print_detailed_search"]:
+            print(f"runs: {num_of_runs}, low: {low}, mid: {prev_new_mid}, high: {high}")
+        prev_new_mid = new_mid
 
     return num_of_runs, high
 
@@ -85,7 +95,18 @@ def hybrid_search(commits, probabilities, alpha):
 def get_preds_per_depth():
     samples = CONFIG["samples"]
     features = CONFIG["features"]
+    min_max_depth = CONFIG["min_max_depth"]
+    max_max_depth = CONFIG["max_max_depth"]
     n_informative = CONFIG["n_informative"]
+
+    name = f"data__samples_{samples}__features_{features}__n_informative_{n_informative}__min_max_depth_{min_max_depth}__max_max_depth_{max_max_depth}.pkl"
+
+    # check if the data is already generated
+    try:
+        data = pd.read_pickle(os.path.join("data", name))
+        return data
+    except:
+        pass
 
     X, y = make_classification(
         n_samples=samples,
@@ -116,13 +137,16 @@ def get_preds_per_depth():
 
         probas = model.predict_proba(X)[:, 1]
         data[max_depth] = {"preds": probas, "commits": y}
+    
+    pd.DataFrame(data).to_pickle(os.path.join("data", name))
 
     return data
 
 
 def transform_data(y, predictions):
-    min_chunk_size = 2 ** CONFIG["min_log_size"]
+    min_chunk_size = 2 ** (CONFIG["min_log_size"] - 1) + 1
     max_chunk_size = 2 ** CONFIG["max_log_size"]
+    print(f"min_chunk_size: {min_chunk_size}, max_chunk_size: {max_chunk_size}")
 
     index = 0
     chunks = []
@@ -180,10 +204,8 @@ def transform_data(y, predictions):
 
 
 def main():
-    print("Starting Hybrid Search")
     data = get_preds_per_depth()
-    print("Data Generation Complete")
-    alpha = 0.5
+    alpha = 1
 
     for max_depth, data_entries in data.items():
         preds = data_entries["preds"]
@@ -191,41 +213,41 @@ def main():
         chunks = transform_data(commits, preds)
         break
 
+    print(f"No of chunks: {len(chunks)}")
     trials = 0
+
+    data = []
     for chunk in chunks:
-        y_chunk = chunk["y_chunk"]
-        preds_chunk = chunk["preds_chunk"]
         y_transformed = chunk["y_transformed"]
 
-        print(y_transformed)
-        print()
+        if CONFIG["print_detailed_search"]:
+            print(f"Size: {np.ceil(np.log(len(y_transformed)))}")
 
-        # hybrid search
-        print("Binary Search")
-        hybrid_runs, hybrid_index = hybrid_search(y_transformed, preds_chunk, alpha)
-
-        # compare with alpha = 0
-        print("\nHeruistic Search")
+        hybrid_runs, hybrid_index = hybrid_search(y_transformed, chunk["preds_chunk"], alpha)
         binary_runs, binary_index = binary_search(y_transformed)
 
         # assert they are the same index
         assert binary_index == hybrid_index
-        print(f"saved runs: {(binary_runs - hybrid_runs)/(binary_runs - 2)}")
+        if CONFIG["print_detailed_search"]:
+            print(f"saved runs: {(binary_runs - hybrid_runs)/(binary_runs - 2)}")
         trials += 1
-        print("\n\n")
-        if trials == 2:
-            break
+        if CONFIG["print_detailed_search"]:
+            print("*" * 100 + "\n\n")
+        
+        data.append({"binary_runs": binary_runs, "hybrid_runs": hybrid_runs, "saved_runs": (binary_runs - hybrid_runs)/(binary_runs)})
 
+    pd.DataFrame(data).to_pickle("hybrid.pkl")
 
 
 CONFIG = {
-    "samples": 40000,
+    "samples": 10000,
     "features": 100,
-    "n_informative": 50,
-    "min_max_depth": 50,
-    "max_max_depth": 50,
-    "min_log_size": 4,
-    "max_log_size": 7,
+    "n_informative": 90,
+    "min_max_depth": 100,
+    "max_max_depth": 100,
+    "min_log_size": 8,
+    "max_log_size": 10,
+    "print_detailed_search": False,
 }
 
 
