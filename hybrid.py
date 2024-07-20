@@ -7,6 +7,24 @@ from tqdm import tqdm
 import pandas as pd
 
 
+
+def add_uniform_noise(probas, noise_level=0.1):
+    """
+    Adds random uniform noise to a list of probabilities.
+
+    Parameters:
+    probas (list of float): List of probabilities to add noise to.
+    noise_level (float): Maximum amount of noise to add. Noise will be in the range [-noise_level, noise_level].
+
+    Returns:
+    list of float: Probabilities with added noise.
+    """
+    noise = np.random.uniform(-noise_level, noise_level, len(probas))
+    probas += noise
+    probas = (probas - min(probas)) / (max(probas) - min(probas))
+
+    return probas
+
 def get_value(y, index):
     x = y[index]
     return x
@@ -292,6 +310,7 @@ def main():
             print("---"*20)
             print(f"alpha = {alpha}")
             print("---"*20)
+            chunk["preds_chunk"] = add_uniform_noise(chunk["preds_chunk"], noise_level=0.02)
             hybrid_runs, hybrid_index = hybrid_search(y_transformed, chunk["preds_chunk"], alpha)
             
             # check index similarity 
