@@ -369,7 +369,7 @@ def main():
             
             results.append({"binary_runs": binary_runs, 
                             "hit_or_miss_runs": heuristic_runs, 
-                            "saved_runs": (binary_runs - heuristic_runs)/(binary_runs), 
+                            "saved_runs": (binary_runs - heuristic_runs)/(binary_runs-2), 
                             "score": score,
                             }
                         )
