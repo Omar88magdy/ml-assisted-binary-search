@@ -1,15 +1,13 @@
 import os
 import math
+import pickle
+
 import numpy as np
-
 import pandas as pd
-
 from sklearn.datasets import make_classification
 from sklearn.ensemble import RandomForestClassifier
 from tqdm import tqdm
-import pickle
-from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_score
-from scipy.stats import hmean
+from sklearn.metrics import confusion_matrix
 
 
 def diffs(probas):
@@ -75,43 +73,51 @@ def wBCE_loss(y, y_hat):
     return wBCE_loss
 
 
-def scoring(*, y_true, y_pred=None, metric="harmonic_tnr_recall"):
+def hmean(x, y):
+    return 2 * (x * y) / (x + y + CONFIG["epsilon"])
+
+
+def scoring(*, y_true, y_pred=None, metric="b3s", is_thresholded=False):
     """
     input: true_labels, predicted_labels, predicted_probabilities, metric
     output: score
-    metric: 'harmonic_tnr_recall', 'harmonic_tnr_precision', 'f1', 'precision', 'recall', 'tnr', 'weighted_binary_cross_entropy'
+    metric: 'b3s', 'htp', 'f1', 'precision', 'recall', 'tnr', 'wbce'
     """
-    predictions = [1 if proba >= 0.5 else 0 for proba in y_pred]
+    if metric != "wbce":
+        if is_thresholded:
+            predictions = y_pred
+        else:
+            predictions = np.where(y_pred >= CONFIG["threshold"], 1, 0)
 
-    cm = confusion_matrix(y_true, predictions)
-    tn, fp, fn, tp = cm.ravel()
+        cm = confusion_matrix(y_true, predictions)
+        tn, fp, fn, tp = cm.ravel()
 
     # Define available metrics
-    if metric == "harmonic_tnr_recall":
+    if metric == "b3s":
         score = hmean(
-            [
-                tn / (tn + fp) if (tn + fp) != 0 else 0,
-                tp / (tp + fn) if (tp + fn) != 0 else 0,
-            ],
-            axis=0,
+            scoring(y_true=y_true, y_pred=predictions, metric="recall", is_thresholded=True),
+            scoring(y_true=y_true, y_pred=predictions, metric="tnr", is_thresholded=True)
         )
-    elif metric == "harmonic_tnr_precision":
+    elif metric == "htp":
         score = hmean(
-            tn / (tn + fp) if (tn + fp) != 0 else 0,
-            tp / (tp + fp) if (tp + fp) != 0 else 0,
+            scoring(y_true=y_true, y_pred=predictions, metric="tnr", is_thresholded=True),
+            scoring(y_true=y_true, y_pred=predictions, metric="precision", is_thresholded=True)
         )
     elif metric == "f1":
-        score = f1_score(y_true, predictions)
+        score = hmean(
+            scoring(y_true=y_true, y_pred=predictions, metric="precision", is_thresholded=True),
+            scoring(y_true=y_true, y_pred=predictions, metric="recall", is_thresholded=True)
+        )
     elif metric == "precision":
-        score = precision_score(y_true, predictions)
+        score = (tp) / (tp + fp) if (tp + fp) != 0 else 0.0
     elif metric == "recall":
-        score = recall_score(y_true, predictions)
+        score = (tp) / (tp + fn) if (tp + fn) != 0 else 0.0
     elif metric == "tnr":
         score = tn / (tn + fp) if (tn + fp) != 0 else 0.0
-    elif metric == "weighted_binary_cross_entropy":
+    elif metric == "wbce":
         if y_pred is None:
             raise ValueError(
-                "y_pred_proba must be provided for weighted_binary_cross_entropy"
+                "y_pred_proba must be provided for wbce"
             )
         score = wBCE_loss(y_true, y_pred)
     else:
@@ -325,18 +331,17 @@ def main():
     results = []
     results_plot = []
 
-    for max_depth, preds_commits in data.items():
+    for max_depth, preds_commits in tqdm(
+        data.items(),
+        desc=f"Processing chunks",
+        colour="blue",
+    ):
         preds = preds_commits["preds"]
         commits = preds_commits["commits"]
         chunks = transform_data(commits, preds)
         saved_runs_mean = []
         scores_mean = []
-        for chunk in tqdm(
-            chunks,
-            desc=f"Depth: {max_depth} out of {(CONFIG['max_max_depth'], CONFIG['min_max_depth'])}",
-            colour="blue",
-
-        ):
+        for chunk in chunks:
             y_transformed = chunk["y_transformed"]
 
             # binary runs can be calculated only using the length of the array
@@ -405,7 +410,7 @@ def main():
 
 CONFIG = {
     "algorithm": "equilibrium",
-    "metric": "harmonic_tnr_recall",
+    "metric": "wbce",
     "samples": 70000,
     "features": 100,
     "n_informative": 90,
@@ -414,6 +419,8 @@ CONFIG = {
     "min_log_size": 8,
     "max_log_size": 10,
     "print_detailed_search": False,
+    "threshold": 0.5,
+    "epsilon": 1e-8,
 }
 
 main()
