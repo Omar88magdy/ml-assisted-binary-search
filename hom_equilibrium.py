@@ -251,6 +251,7 @@ def get_preds_per_depth():
             max_depth=max_depth,
             min_samples_split=2,
             min_samples_leaf=1,
+            class_weight="balanced",
             random_state=42,
             n_jobs=8,
         )
@@ -329,9 +330,7 @@ def transform_data(y, predictions):
 def main():
     data = get_preds_per_depth()
 
-    results = []
-    results_plot = []
-
+    results_dict = {}
     for max_depth, preds_commits in tqdm(
         data.items(),
         desc=f"Processing chunks",
@@ -339,9 +338,24 @@ def main():
     ):
         preds = preds_commits["preds"]
         commits = preds_commits["commits"]
+        
         chunks = transform_data(commits, preds)
-        saved_runs_mean = []
-        scores_mean = []
+
+        y_true_concat = np.concat([chunk["y_chunk"] for chunk in chunks])
+        y_pred_concat = np.concat([chunk["preds_chunk"] for chunk in chunks])
+        
+        scores = {
+            k: scoring(y_true=y_true_concat, y_pred=y_pred_concat, metric=k)
+            for k in CONFIG["metrics"]
+        }
+        
+        results_dict[max_depth] = {
+            "binary_runs": [],
+            "algorithm_runs": [],
+            "saved_runs": [],
+            "score": scores,
+        }
+        
         for chunk in chunks:
             y_transformed = chunk["y_transformed"]
 
@@ -369,54 +383,25 @@ def main():
                 print(f"Size: {np.ceil(np.log(len(y_transformed)))}")
                 print(f"saved runs: {(binary_runs - heuristic_runs)/(binary_runs - 2)}")
                 print("*" * 100 + "\n\n")
-            score = scoring(
-                y_true=chunk["y_chunk"],
-                y_pred=chunk["preds_chunk"],
-                metric=CONFIG["metric"],
+
+            results_dict[max_depth]["binary_runs"].append(binary_runs)
+            results_dict[max_depth]["algorithm_runs"].append(heuristic_runs)
+            results_dict[max_depth]["saved_runs"].append(
+                (binary_runs - heuristic_runs) / (binary_runs - 2)
             )
 
-            saved_runs_mean.append((binary_runs - heuristic_runs) / (binary_runs - 2))
-            scores_mean.append(score)
-
-            results.append(
-                {
-                    "binary_runs": binary_runs,
-                    "hit_or_miss_runs": heuristic_runs,
-                    "saved_runs": (binary_runs - heuristic_runs) / (binary_runs),
-                    "score": score,
-                }
-            )
-
-        results_plot.append(
-            {
-                "saved_runs_avg": np.mean(saved_runs_mean),
-                "score_avg": np.mean(scores_mean),
-            }
-        )
-
-    pd.DataFrame(results).to_pickle(
-        f"results/{CONFIG['algorithm']}_{CONFIG['metric']}.pkl"
+    pd.DataFrame(results_dict).T.to_pickle(
+        f"results__{CONFIG['algorithm']}.pkl"
     )
-    pd.DataFrame(results).to_csv(
-        f"results/{CONFIG['algorithm']}_{CONFIG['metric']}.csv"
-    )
-
-    pd.DataFrame(results_plot).to_pickle(
-        f"results/{CONFIG['algorithm']}_{CONFIG['metric']}_plot.pkl"
-    )
-    pd.DataFrame(results_plot).to_csv(
-        f"results/{CONFIG['algorithm']}_{CONFIG['metric']}_plot.csv"
-    )
-
 
 CONFIG = {
-    "algorithm": "hom",  # equilibrium or hom
-    "metric": "wbce",  # b3s, htp, f1, precision, recall, tnr, wbce
-    "samples": 70000,
+    "algorithm": "equilibrium",  # equilibrium or hom
+    "metrics": ["b3s", "htp", "f1", "wbce", "recall", "tnr"],  # b3s, htp, f1, precision, recall, tnr, wbce
+    "samples": 100000,
     "features": 100,
-    "n_informative": 90,
+    "n_informative": 40,
     "min_max_depth": 1,
-    "max_max_depth": 30,
+    "max_max_depth": 40,
     "min_log_size": 8,
     "max_log_size": 10,
     "print_detailed_search": False,
