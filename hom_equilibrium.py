@@ -272,6 +272,7 @@ def transform_data(y, predictions):
 
     index = 0
     chunks = []
+    np.random.seed(42)
     while True:
         size = np.random.randint(min_chunk_size, max_chunk_size)
 
