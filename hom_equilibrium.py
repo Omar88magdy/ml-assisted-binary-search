@@ -1,5 +1,5 @@
 import os
-import math 
+import math
 import numpy as np
 
 import pandas as pd
@@ -9,7 +9,7 @@ from sklearn.ensemble import RandomForestClassifier
 from tqdm import tqdm
 import pickle
 from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_score
-from scipy.stats import hmean 
+from scipy.stats import hmean
 
 
 def diffs(probas, low):
@@ -59,9 +59,8 @@ def equilibrium(data_transformed, probas):
     return num_of_runs, high
 
 
-
 def wBCE_loss(y, y_hat):
-# Calculate the lambda value
+    # Calculate the lambda value
     N_bad = np.sum(y)
     N = len(y)
     N_good = N - N_bad
@@ -72,9 +71,12 @@ def wBCE_loss(y, y_hat):
     y_hat = np.clip(y_hat, epsilon, 1 - epsilon)
 
     # Calculate the weighted BCE loss
-    wBCE_loss = ((-2 / N) * np.sum(lam * y * np.log(y_hat) + (1 - lam) * (1 - y) * np.log(1 - y_hat)))
-    
+    wBCE_loss = (-2 / N) * np.sum(
+        lam * y * np.log(y_hat) + (1 - lam) * (1 - y) * np.log(1 - y_hat)
+    )
+
     return wBCE_loss
+
 
 def scoring(*, y_true, y_pred=None, metric="harmonic_tnr_recall"):
     """
@@ -89,15 +91,17 @@ def scoring(*, y_true, y_pred=None, metric="harmonic_tnr_recall"):
 
     # Define available metrics
     if metric == "harmonic_tnr_recall":
-        score = hmean([
-            tn / (tn + fp) if (tn + fp) != 0 else 0,
-            tp / (tp + fn) if (tp + fn) != 0 else 0],
-            axis = 0
+        score = hmean(
+            [
+                tn / (tn + fp) if (tn + fp) != 0 else 0,
+                tp / (tp + fn) if (tp + fn) != 0 else 0,
+            ],
+            axis=0,
         )
     elif metric == "harmonic_tnr_precision":
         score = hmean(
             tn / (tn + fp) if (tn + fp) != 0 else 0,
-            tp / (tp + fp) if (tp + fp) != 0 else 0
+            tp / (tp + fp) if (tp + fp) != 0 else 0,
         )
     elif metric == "f1":
         score = f1_score(y_true, predictions)
@@ -109,7 +113,9 @@ def scoring(*, y_true, y_pred=None, metric="harmonic_tnr_recall"):
         score = tn / (tn + fp) if (tn + fp) != 0 else 0.0
     elif metric == "weighted_binary_cross_entropy":
         if y_pred is None:
-            raise ValueError("y_pred_proba must be provided for weighted_binary_cross_entropy")
+            raise ValueError(
+                "y_pred_proba must be provided for weighted_binary_cross_entropy"
+            )
         score = wBCE_loss(y_true, y_pred)
     else:
         raise ValueError(f"Metric '{metric}' not recognized")
@@ -134,12 +140,13 @@ def add_uniform_noise(probas, noise_level=0.1):
 
     return probas
 
+
 def get_value(y, index):
     x = y[index]
     return x
 
 
-# old diffs 
+# old diffs
 def diffs(probas, low):
     diffs = [
         abs(sum1 - sum2)
@@ -151,6 +158,7 @@ def diffs(probas, low):
     index += low
     return index, diffs
 
+
 def binary_search(commits):
     num_of_runs = 0
     len_commits = len(commits)
@@ -161,7 +169,7 @@ def binary_search(commits):
 
     if state_of_first == 0 and state_of_last == 0:
         return -1, num_of_runs
-    
+
     if CONFIG["print_detailed_search"]:
         print(f"low: {low}, high: {high}")
     prev_mid = -1
@@ -174,14 +182,15 @@ def binary_search(commits):
 
         elif commits[mid] == 0:
             low = mid + 1
-        
+
         if CONFIG["print_detailed_search"]:
             print(f"runs: {num_of_runs}, low: {low}, mid: {prev_mid}, high: {high}")
         prev_mid = mid
-        if  mid ==1:
-            print('Hello!')
-    
+        if mid == 1:
+            print("Hello!")
+
     return num_of_runs, high
+
 
 def hit_or_miss(y_transformed, probas):
     heuristic_runs = 0
@@ -212,6 +221,7 @@ def hit_or_miss(y_transformed, probas):
                 return heuristic_runs, i
 
     return heuristic_runs, len(y_transformed) - 1
+
 
 # data generation
 def get_preds_per_depth():
@@ -244,7 +254,9 @@ def get_preds_per_depth():
 
     data = {}
     for max_depth in tqdm(
-        range(CONFIG["min_max_depth"], CONFIG["max_max_depth"] + 1), desc="Max Depth Progress", colour="green"
+        range(CONFIG["min_max_depth"], CONFIG["max_max_depth"] + 1),
+        desc="Max Depth Progress",
+        colour="green",
     ):
         model = RandomForestClassifier(
             n_estimators=150,
@@ -259,7 +271,7 @@ def get_preds_per_depth():
 
         probas = model.predict_proba(X)[:, 1]
         data[max_depth] = {"preds": probas, "commits": y}
-    
+
     pd.DataFrame(data).to_pickle(os.path.join("data", name))
 
     return data
@@ -327,7 +339,7 @@ def transform_data(y, predictions):
 
 def main():
     data = get_preds_per_depth()
-        
+
     results = []
     results_plot = []
 
@@ -344,45 +356,65 @@ def main():
 
             binary_runs, binary_index = binary_search(y_transformed)
             # binary_runs = np.ceil(np.log(len(y_transformed)))
-            print("---"*20)
-            
+            print("---" * 20)
+
             # noise_level =(10*np.exp(-0.4*max_depth))/10
 
             # chunk["preds_chunk"] = add_uniform_noise(chunk["preds_chunk"], noise_level=noise_level)
-            if CONFIG['algorithm'] == 'equilibrium':
-                heuristic_runs, heuristic_index = equilibrium(y_transformed, chunk["preds_chunk"])
-            elif CONFIG['algorithm'] == 'hit_or_miss':
-                heuristic_runs, heuristic_index = hit_or_miss(y_transformed, chunk["preds_chunk"])
-            # check index similarity 
+            if CONFIG["algorithm"] == "equilibrium":
+                heuristic_runs, heuristic_index = equilibrium(
+                    y_transformed, chunk["preds_chunk"]
+                )
+            elif CONFIG["algorithm"] == "hit_or_miss":
+                heuristic_runs, heuristic_index = hit_or_miss(
+                    y_transformed, chunk["preds_chunk"]
+                )
+            # check index similarity
             assert binary_index == heuristic_index
 
             if CONFIG["print_detailed_search"]:
                 print(f"Size: {np.ceil(np.log(len(y_transformed)))}")
                 print(f"saved runs: {(binary_runs - heuristic_runs)/(binary_runs - 2)}")
                 print("*" * 100 + "\n\n")
-            score = scoring(y_true=chunk['y_chunk'], 
-                                             y_pred = chunk["preds_chunk"],
-                                               metric=CONFIG["metric"])
-            
-            saved_runs_mean.append((binary_runs - heuristic_runs)/(binary_runs))
-            scores_mean.append(score)
-            
-            results.append({"binary_runs": binary_runs, 
-                            "hit_or_miss_runs": heuristic_runs, 
-                            "saved_runs": (binary_runs - heuristic_runs)/(binary_runs), 
-                            "score": score,
-                            }
-                        )
-            
-        results_plot.append({'saved_runs_avg':np.mean(saved_runs_mean),
-                             'score_avg':np.mean(scores_mean)})
+            score = scoring(
+                y_true=chunk["y_chunk"],
+                y_pred=chunk["preds_chunk"],
+                metric=CONFIG["metric"],
+            )
 
-    pd.DataFrame(results).to_pickle(f"results/{CONFIG['algorithm']}_{CONFIG['metric']}.pkl")
-    pd.DataFrame(results).to_csv(f"results/{CONFIG['algorithm']}_{CONFIG['metric']}.csv")
-    
-    pd.DataFrame(results_plot).to_pickle(f"results/{CONFIG['algorithm']}_{CONFIG['metric']}_plot.pkl")
-    pd.DataFrame(results_plot).to_csv(f"results/{CONFIG['algorithm']}_{CONFIG['metric']}_plot.csv")
-    
+            saved_runs_mean.append((binary_runs - heuristic_runs) / (binary_runs))
+            scores_mean.append(score)
+
+            results.append(
+                {
+                    "binary_runs": binary_runs,
+                    "hit_or_miss_runs": heuristic_runs,
+                    "saved_runs": (binary_runs - heuristic_runs) / (binary_runs),
+                    "score": score,
+                }
+            )
+
+        results_plot.append(
+            {
+                "saved_runs_avg": np.mean(saved_runs_mean),
+                "score_avg": np.mean(scores_mean),
+            }
+        )
+
+    pd.DataFrame(results).to_pickle(
+        f"results/{CONFIG['algorithm']}_{CONFIG['metric']}.pkl"
+    )
+    pd.DataFrame(results).to_csv(
+        f"results/{CONFIG['algorithm']}_{CONFIG['metric']}.csv"
+    )
+
+    pd.DataFrame(results_plot).to_pickle(
+        f"results/{CONFIG['algorithm']}_{CONFIG['metric']}_plot.pkl"
+    )
+    pd.DataFrame(results_plot).to_csv(
+        f"results/{CONFIG['algorithm']}_{CONFIG['metric']}_plot.csv"
+    )
+
 
 CONFIG = {
     "algorithm": "equilibrium",
