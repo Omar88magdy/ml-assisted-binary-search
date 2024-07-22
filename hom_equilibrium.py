@@ -12,16 +12,13 @@ from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_
 from scipy.stats import hmean
 
 
-def diffs(probas, low):
-    diffs = [
-        abs(sum1 - sum2)
-        for sum1, sum2 in [
-            (sum(probas[: i + 1]), sum(probas[i:])) for i in range(1, len(probas))
-        ]
-    ]
-    index = np.argmin(diffs)
-    index += low
-    return index, diffs
+def diffs(probas):
+    probas = np.array(probas)
+    left_sums = np.cumsum(probas)[:-1]
+    total_sum = np.sum(probas)
+    right_sums = total_sum - left_sums
+    differences = np.abs(left_sums - right_sums)
+    return differences.tolist()
 
 
 def equilibrium(data_transformed, probas):
@@ -40,7 +37,10 @@ def equilibrium(data_transformed, probas):
 
     previous_mid = -1
     while len(probas[low:high]) >= 1:
-        mid, _ = diffs(probas[low : high + 1], low)
+        diffs_arr = diffs(probas[low : high + 1])
+
+        mid = np.argmin(diffs_arr) + low
+
         state_of_current = get_value(data_transformed, mid)
         num_of_runs += 1
 
@@ -146,19 +146,6 @@ def get_value(y, index):
     return x
 
 
-# old diffs
-def diffs(probas, low):
-    diffs = [
-        abs(sum1 - sum2)
-        for sum1, sum2 in [
-            (sum(probas[: i + 1]), sum(probas[i:])) for i in range(1, len(probas))
-        ]
-    ]
-    index = np.argmin(diffs)
-    index += low
-    return index, diffs
-
-
 def binary_search(commits):
     num_of_runs = 0
     len_commits = len(commits)
@@ -186,8 +173,6 @@ def binary_search(commits):
         if CONFIG["print_detailed_search"]:
             print(f"runs: {num_of_runs}, low: {low}, mid: {prev_mid}, high: {high}")
         prev_mid = mid
-        if mid == 1:
-            print("Hello!")
 
     return num_of_runs, high
 
@@ -280,7 +265,7 @@ def get_preds_per_depth():
 def transform_data(y, predictions):
     min_chunk_size = 2 ** (CONFIG["min_log_size"] - 1) + 1
     max_chunk_size = 2 ** CONFIG["max_log_size"]
-    print(f"min_chunk_size: {min_chunk_size}, max_chunk_size: {max_chunk_size}")
+    if CONFIG["print_detailed_search"]: print(f"min_chunk_size: {min_chunk_size}, max_chunk_size: {max_chunk_size}")
 
     index = 0
     chunks = []
@@ -349,14 +334,19 @@ def main():
         chunks = transform_data(commits, preds)
         saved_runs_mean = []
         scores_mean = []
-        for chunk in chunks:
+        for chunk in tqdm(
+            chunks,
+            desc=f"Depth: {max_depth} out of {(CONFIG['max_max_depth'], CONFIG['min_max_depth'])}",
+            colour="blue",
+
+        ):
             y_transformed = chunk["y_transformed"]
 
             # binary runs can be calculated only using the length of the array
 
             binary_runs, binary_index = binary_search(y_transformed)
             # binary_runs = np.ceil(np.log(len(y_transformed)))
-            print("---" * 20)
+            if CONFIG["print_detailed_search"]: print("---" * 20)
 
             # noise_level =(10*np.exp(-0.4*max_depth))/10
 
@@ -382,7 +372,7 @@ def main():
                 metric=CONFIG["metric"],
             )
 
-            saved_runs_mean.append((binary_runs - heuristic_runs) / (binary_runs))
+            saved_runs_mean.append((binary_runs - heuristic_runs) / (binary_runs - 2))
             scores_mean.append(score)
 
             results.append(
@@ -418,7 +408,7 @@ def main():
 
 CONFIG = {
     "algorithm": "equilibrium",
-    "metric": "f1",
+    "metric": "harmonic_tnr_recall",
     "samples": 70000,
     "features": 100,
     "n_informative": 90,
@@ -426,7 +416,7 @@ CONFIG = {
     "max_max_depth": 30,
     "min_log_size": 8,
     "max_log_size": 10,
-    "print_detailed_search": True,
+    "print_detailed_search": False,
 }
 
 main()
