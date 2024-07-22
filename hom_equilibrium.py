@@ -182,12 +182,13 @@ def binary_search(commits):
 
 def hit_or_miss(y_transformed, probas):
     heuristic_runs = 0
-    dynamic = [-1 for _ in range(len(y_transformed))]
-    probas_and_idxs = [(probas[i], i) for i in range(len(probas))]
+    # create an array of -1s to keep track of the dynamic programming, use numpy for speed
+    dynamic = np.full(len(y_transformed), -1)
 
-    highest_probas = sorted(probas_and_idxs, key=lambda t: t[0], reverse=True)
+    # enumerate the probabilities and their indexes, use numpy for speed
+    top_idxs = np.argsort(probas)[::-1]
 
-    for _, idx in highest_probas:
+    for idx in top_idxs:
         if dynamic[idx] != -1:
             continue
 
@@ -204,14 +205,13 @@ def hit_or_miss(y_transformed, probas):
             if prev_outcome == 0:
                 return heuristic_runs, idx
 
-        for i, val in enumerate(dynamic):
-            if val == 1 and dynamic[i - 1] == 0:
-                return heuristic_runs, i
+        first_fails = np.where((dynamic[:-1] == 0) & (dynamic[1:] == 1))[0]
+        if len(first_fails) > 0:
+            return heuristic_runs, first_fails[0] + 1
+        
+    raise ValueError("No hit or miss found")
 
-    return heuristic_runs, len(y_transformed) - 1
 
-
-# data generation
 def get_preds_per_depth():
     samples = CONFIG["samples"]
     features = CONFIG["features"]
@@ -358,12 +358,12 @@ def main():
                 heuristic_runs, heuristic_index = equilibrium(
                     y_transformed, chunk["preds_chunk"]
                 )
-            elif CONFIG["algorithm"] == "hit_or_miss":
+            elif CONFIG["algorithm"] == "hom":
                 heuristic_runs, heuristic_index = hit_or_miss(
                     y_transformed, chunk["preds_chunk"]
                 )
             # check index similarity
-            assert binary_index == heuristic_index
+            assert binary_index == heuristic_index,  f"{binary_index=} != {heuristic_index=}, in " + ' '.join([str((int(i), round(x, 4))) for i, x in enumerate(y_transformed.tolist())])
 
             if CONFIG["print_detailed_search"]:
                 print(f"Size: {np.ceil(np.log(len(y_transformed)))}")
@@ -410,8 +410,8 @@ def main():
 
 
 CONFIG = {
-    "algorithm": "equilibrium",
-    "metric": "wbce",
+    "algorithm": "hom",  # equilibrium or hom
+    "metric": "wbce",  # b3s, htp, f1, precision, recall, tnr, wbce
     "samples": 70000,
     "features": 100,
     "n_informative": 90,
