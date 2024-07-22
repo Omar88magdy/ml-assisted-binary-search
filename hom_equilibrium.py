@@ -13,12 +13,9 @@ from scipy.stats import hmean
 
 
 def diffs(probas):
-    probas = np.array(probas)
     left_sums = np.cumsum(probas)[:-1]
-    total_sum = np.sum(probas)
-    right_sums = total_sum - left_sums
-    differences = np.abs(left_sums - right_sums)
-    return differences.tolist()
+    right_sums = np.sum(probas) - left_sums
+    return np.abs(left_sums - right_sums)
 
 
 def equilibrium(data_transformed, probas):
