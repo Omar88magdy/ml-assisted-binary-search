@@ -364,12 +364,12 @@ def main():
                                              y_pred = chunk["preds_chunk"],
                                                metric=CONFIG["metric"])
             
-            saved_runs_mean.append((binary_runs - heuristic_runs)/(binary_runs-2))
+            saved_runs_mean.append((binary_runs - heuristic_runs)/(binary_runs))
             scores_mean.append(score)
             
             results.append({"binary_runs": binary_runs, 
                             "hit_or_miss_runs": heuristic_runs, 
-                            "saved_runs": (binary_runs - heuristic_runs)/(binary_runs-2), 
+                            "saved_runs": (binary_runs - heuristic_runs)/(binary_runs), 
                             "score": score,
                             }
                         )
