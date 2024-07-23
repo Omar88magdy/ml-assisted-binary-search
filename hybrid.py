@@ -1,5 +1,4 @@
 import os
-import math 
 import numpy as np
 from sklearn.datasets import make_classification
 from sklearn.ensemble import RandomForestClassifier
@@ -42,34 +41,24 @@ def wBCE_loss(y, y_hat):
     y_hat = np.clip(y_hat, epsilon, 1 - epsilon)
 
     # Calculate the weighted BCE loss
-    wBCE_loss = ((-2 / N) * np.sum(lam * y * np.log(y_hat) + (1 - lam) * (1 - y) * np.log(1 - y_hat)))
-    
+    wBCE_loss = (-2 / N) * np.sum(
+        lam * y * np.log(y_hat) + (1 - lam) * (1 - y) * np.log(1 - y_hat)
+    )
+
     return wBCE_loss
 
 
 
-# def diffs(probas):
-    diffs = [
-        abs(sum1 - sum2)
-        for sum1, sum2 in [
-            (sum(probas[: i + 1]), sum(probas[i:])) for i in range(1, len(probas))
-        ]
-    ]
-    return diffs
+def diffs2(probas):
+    probas = np.array(probas)
+    left_sums = np.cumsum(probas)[:-1]
+    total_sum = np.sum(probas)
+    right_sums = total_sum - left_sums
+    differences = np.abs(left_sums - right_sums)
+    return differences.tolist()
 
 
-# old diffs 
-def diffs(probas, low):
-    diffs = [
-        abs(sum1 - sum2)
-        for sum1, sum2 in [
-            (sum(probas[: i + 1]), sum(probas[i:])) for i in range(1, len(probas))
-        ]
-    ]
-    index = np.argmin(diffs)
-    index += low
-    return index, diffs
-
+# Binary search algorithm
 def binary_search(commits):
     num_of_runs = 0
     len_commits = len(commits)
@@ -101,6 +90,7 @@ def binary_search(commits):
     return num_of_runs, high
 
 
+
 # Hybrid search algorithm
 def hybrid_search(commits, probabilities, alpha):
     num_of_runs = 0
@@ -113,54 +103,18 @@ def hybrid_search(commits, probabilities, alpha):
     if state_of_first == 0 and state_of_last == 0:
         return -1, num_of_runs
 
-    previ_new_mid = -1
 
-    while low < high :
-        binary_mid = (low + high) // 2
-
-        if previ_new_mid == binary_mid:
-            break
-
-        # alpha is the weight of the probabilities and adjustable parameter
-        prob_mid, diffs_ = diffs(probabilities[low : high + 1], low)
-        new_mid = round(((alpha * prob_mid) + ((1 - alpha) * binary_mid)))
-
-        num_of_runs += 1
-        if commits[new_mid] == 1:
-            high = new_mid
-            previ_new_mid = new_mid
-
-        elif commits[new_mid] == 0:
-            low = new_mid + 1
-
-        if CONFIG["print_detailed_search"]:
-            print(f"runs: {num_of_runs}, low: {low}, high: {high}")
-
-    return num_of_runs, high
-
-# def hybrid_search(commits, probabilities, alpha):
-    num_of_runs = 0
-    len_commits = len(commits)
-    low, high = 0, len_commits - 1
-
-    state_of_first = get_value(commits, 0)
-    state_of_last = get_value(commits, len_commits - 1)
-
-    if state_of_first == 0 and state_of_last == 0:
-        print("HI!")
-        return -1, num_of_runs
-
-    if CONFIG["print_detailed_search"]:
-        print(f"low: {low}, high: {high}")
-    prev_new_mid = -1
+    if alpha == 0:
+        return binary_search(commits)
+    
     while low < high:
         binary_mid = (low + high) // 2
 
-        diffs_arr = diffs(probabilities[low : high + 1])
+        diffs_arr = diffs2(probabilities[low : high + 1])
 
         prob_mid = np.argmin(diffs_arr) + low
 
-        new_mid = int(((alpha * prob_mid) + ((1 - alpha) * binary_mid)))
+        new_mid = round(((alpha * prob_mid) + ((1 - alpha) * binary_mid)))
 
         num_of_runs += 1
         if commits[new_mid] == 1:
@@ -170,8 +124,7 @@ def hybrid_search(commits, probabilities, alpha):
             low = new_mid + 1
         
         if CONFIG["print_detailed_search"]:
-            print(f"runs: {num_of_runs}, low: {low}, mid: {prev_new_mid}, high: {high}")
-        prev_new_mid = new_mid
+            print(f"runs: {num_of_runs}, low: {low}, high: {high}")
 
     return num_of_runs, high
 
@@ -189,6 +142,7 @@ def get_preds_per_depth():
     # check if the data is already generated
     try:
         data = pd.read_pickle(os.path.join("data", name))
+        print("you saved the time of data regeneration")
         return data
     except:
         pass
@@ -201,7 +155,7 @@ def get_preds_per_depth():
         n_clusters_per_class=1,
         n_classes=2,
         weights=[0.997, 0.003],
-        flip_y=0.02,
+        flip_y=0.01,            # rolling back to default
         random_state=42,
     )
 
@@ -244,7 +198,7 @@ def transform_data(y, predictions):
         y_chunk = y[index : index + size]
         preds_chunk = predictions[index : index + size]
 
-        if sum(y_chunk) == 0:
+        if sum(y_chunk) == 0 or y_chunk[0] == 1 :
             # Do not append!
             index += size
         elif sum(y_chunk) == 1:
@@ -289,58 +243,62 @@ def transform_data(y, predictions):
 
 
 def main():
-    data = get_preds_per_depth()
-    for max_depth, data_entries in data.items():
-        preds = data_entries["preds"]
-        commits = data_entries["commits"]
-        chunks = transform_data(commits, preds)
-        break
+    data = get_preds_per_depth() 
+    # print(f"No of chunks: {len(chunks)}")
 
-    print(f"No of chunks: {len(chunks)}")
+    results = []
+    for alpha in np.arange(0, 1.05, 0.05): # avoid floating point errors
+        for max_depth, preds_and_commits in data.items():
+            preds = preds_and_commits["preds"]
+            commits = preds_and_commits["commits"]
+            chunks = transform_data(commits, preds)
 
-    trials = 0
-    data = []
-    for alpha in np.linspace(0, 1, 20):
-        for chunk in chunks:
-            y_transformed = chunk["y_transformed"]
-            # binary runs can be calculated only using the length of the array
+            scores_mean = []
+            saved_runs_mean = []
+      
 
-            binary_runs, binary_index = binary_search(y_transformed)
-            # binary_runs = np.ceil(np.log(len(y_transformed)))
-            print("---"*20)
-            print(f"alpha = {alpha}")
-            print("---"*20)
-            chunk["preds_chunk"] = add_uniform_noise(chunk["preds_chunk"], noise_level=0.02)
-            hybrid_runs, hybrid_index = hybrid_search(y_transformed, chunk["preds_chunk"], alpha)
+            for chunk in chunks:
+                y_transformed = chunk["y_transformed"]
+                # binary runs can be calculated only using the length of the array
+
+                binary_runs, binary_index = binary_search(y_transformed)
+                # binary_runs = np.ceil(np.log(len(y_transformed)))
+                print("---"*20)
+                print(f"alpha = {alpha}")
+                print("---"*20)
+                # no need to add noise to the predictions
+                hybrid_runs, hybrid_index = hybrid_search(y_transformed, chunk["preds_chunk"], alpha)
+                
+                # check index similarity 
+                assert binary_index == hybrid_index
+                
+                score = wBCE_loss(chunk["y_chunk"], chunk["preds_chunk"])
+
+                saved_runs_mean.append((binary_runs - hybrid_runs) / (binary_runs - 2))
+                scores_mean.append(score)
+
+
+                if CONFIG["print_detailed_search"]:
+                    print(f"Size: {np.ceil(np.log(len(y_transformed)))}")
+                    print(f"saved runs: {(binary_runs - hybrid_runs)/(binary_runs - 2)}")
+                    print("*" * 100 + "\n\n")
             
-            # check index similarity 
-            assert binary_index == hybrid_index
+            results.append({"alpha": alpha,
+                            "saved_runs": np.mean(saved_runs_mean), 
+                            "loss": np.mean(scores_mean),})
+        print('-'*60)
+        print(f"Max Depth: {max_depth}")
+        print('-'*60)
 
-            if CONFIG["print_detailed_search"]:
-                print(f"Size: {np.ceil(np.log(len(y_transformed)))}")
-
-
-            # runs at different alphas for hybrid search
-            
-            data.append({"binary_runs": binary_runs, "hybrid_runs": hybrid_runs, "alpha": alpha ,"saved_runs": (binary_runs - hybrid_runs)/(binary_runs)})
-
-            if CONFIG["print_detailed_search"]:
-                print(f"saved runs: {(binary_runs - hybrid_runs)/(binary_runs - 2)}")
-            trials += 1
-            if CONFIG["print_detailed_search"]:
-                print("*" * 100 + "\n\n")
-            
-            data.append({"binary_runs": binary_runs, "hybrid_runs": hybrid_runs, "alpha": alpha ,"saved_runs": (binary_runs - hybrid_runs)/(binary_runs),"loss": wBCE_loss(y_transformed, chunk["preds_chunk"])})
-
-    pd.DataFrame(data).to_pickle("hybrid.pkl")
+    pd.DataFrame(results).to_pickle("hybrid_vfinal.pkl")
 
 
 CONFIG = {
-    "samples": 10000,
+    "samples": 100000,
     "features": 100,
-    "n_informative": 90,
+    "n_informative": 40,     # changed from 90 to 40 as it gives the most stable results 
     "min_max_depth": 1,
-    "max_max_depth": 29,
+    "max_max_depth": 40,
     "min_log_size": 8,
     "max_log_size": 10,
     "print_detailed_search": True,
