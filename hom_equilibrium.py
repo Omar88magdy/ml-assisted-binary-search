@@ -436,7 +436,7 @@ def main():
 
 
 CONFIG = {
-    "algorithm": "hom",  # equilibrium or hom
+    "algorithm": "equilibrium",  # equilibrium or hom
     "metrics": [
         "b3s",
         "htp",
@@ -459,7 +459,7 @@ CONFIG = {
 }
 
 # parallelize get_preds_per_depth function
-n_informatives = list(range(10, 100, 10))
+n_informatives = list(range(5, 100, 5))
 
 for n_informative in tqdm(n_informatives):
     CONFIG["n_informative"] = n_informative
