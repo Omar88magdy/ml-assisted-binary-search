@@ -56,21 +56,35 @@ def equilibrium(data_transformed, probas):
 
 def wBCE_loss(y, y_hat):
     # Calculate the lambda value
-    N_bad = np.sum(y)
-    N = len(y)
-    N_good = N - N_bad
-    lam = N_good / N
+    lam = (len(y) - np.sum(y)) / len(y)
 
     # Ensure y_hat values are in (0, 1)
     epsilon = 1e-8
     y_hat = np.clip(y_hat, epsilon, 1 - epsilon)
 
     # Calculate the weighted BCE loss
-    wBCE_loss = (-2 / N) * np.sum(
+    wBCE_loss = (-2 / len(y)) * np.sum(
         lam * y * np.log(y_hat) + (1 - lam) * (1 - y) * np.log(1 - y_hat)
     )
 
     return wBCE_loss
+
+
+def focal_loss(y, y_hat, gamma=2):
+    # Calculate the lambda value
+    lam = (len(y) - np.sum(y)) / len(y)
+
+    # Ensure y_hat values are in (0, 1)
+    epsilon = 1e-8
+    y_hat = np.clip(y_hat, epsilon, 1 - epsilon)
+
+    # Calculate the focal loss
+    focal_loss = -np.mean(
+        lam * y * (1 - y_hat) ** gamma * np.log(y_hat)
+        + (1 - lam) * (1 - y) * y_hat ** gamma * np.log(1 - y_hat)
+    )
+
+    return focal_loss
 
 
 def hmean(x, y):
@@ -95,18 +109,36 @@ def scoring(*, y_true, y_pred=None, metric="b3s", is_thresholded=False):
     # Define available metrics
     if metric == "b3s":
         score = hmean(
-            scoring(y_true=y_true, y_pred=predictions, metric="recall", is_thresholded=True),
-            scoring(y_true=y_true, y_pred=predictions, metric="tnr", is_thresholded=True)
+            scoring(
+                y_true=y_true, y_pred=predictions, metric="recall", is_thresholded=True
+            ),
+            scoring(
+                y_true=y_true, y_pred=predictions, metric="tnr", is_thresholded=True
+            ),
         )
     elif metric == "htp":
         score = hmean(
-            scoring(y_true=y_true, y_pred=predictions, metric="tnr", is_thresholded=True),
-            scoring(y_true=y_true, y_pred=predictions, metric="precision", is_thresholded=True)
+            scoring(
+                y_true=y_true, y_pred=predictions, metric="tnr", is_thresholded=True
+            ),
+            scoring(
+                y_true=y_true,
+                y_pred=predictions,
+                metric="precision",
+                is_thresholded=True,
+            ),
         )
     elif metric == "f1":
         score = hmean(
-            scoring(y_true=y_true, y_pred=predictions, metric="precision", is_thresholded=True),
-            scoring(y_true=y_true, y_pred=predictions, metric="recall", is_thresholded=True)
+            scoring(
+                y_true=y_true,
+                y_pred=predictions,
+                metric="precision",
+                is_thresholded=True,
+            ),
+            scoring(
+                y_true=y_true, y_pred=predictions, metric="recall", is_thresholded=True
+            ),
         )
     elif metric == "precision":
         score = (tp) / (tp + fp) if (tp + fp) != 0 else 0.0
@@ -116,10 +148,10 @@ def scoring(*, y_true, y_pred=None, metric="b3s", is_thresholded=False):
         score = tn / (tn + fp) if (tn + fp) != 0 else 0.0
     elif metric == "wbce":
         if y_pred is None:
-            raise ValueError(
-                "y_pred_proba must be provided for wbce"
-            )
+            raise ValueError("y_pred_proba must be provided for wbce")
         score = wBCE_loss(y_true, y_pred)
+    elif metric == "focal":
+        score = focal_loss(y_true, y_pred)
     else:
         raise ValueError(f"Metric '{metric}' not recognized")
 
@@ -208,17 +240,11 @@ def hit_or_miss(y_transformed, probas):
         first_fails = np.where((dynamic[:-1] == 0) & (dynamic[1:] == 1))[0]
         if len(first_fails) > 0:
             return heuristic_runs, first_fails[0] + 1
-        
+
     raise ValueError("No hit or miss found")
 
 
-def get_preds_per_depth():
-    samples = CONFIG["samples"]
-    features = CONFIG["features"]
-    min_max_depth = CONFIG["min_max_depth"]
-    max_max_depth = CONFIG["max_max_depth"]
-    n_informative = CONFIG["n_informative"]
-
+def get_preds_per_depth(samples, features, n_informative, min_max_depth, max_max_depth):
     name = f"data__samples_{samples}__features_{features}__n_informative_{n_informative}__min_max_depth_{min_max_depth}__max_max_depth_{max_max_depth}.pkl"
 
     # check if the data is already generated
@@ -269,7 +295,8 @@ def get_preds_per_depth():
 def transform_data(y, predictions):
     min_chunk_size = 2 ** (CONFIG["min_log_size"] - 1) + 1
     max_chunk_size = 2 ** CONFIG["max_log_size"]
-    if CONFIG["print_detailed_search"]: print(f"min_chunk_size: {min_chunk_size}, max_chunk_size: {max_chunk_size}")
+    if CONFIG["print_detailed_search"]:
+        print(f"min_chunk_size: {min_chunk_size}, max_chunk_size: {max_chunk_size}")
 
     index = 0
     chunks = []
@@ -328,7 +355,13 @@ def transform_data(y, predictions):
 
 
 def main():
-    data = get_preds_per_depth()
+    data = get_preds_per_depth(
+        CONFIG["samples"],
+        CONFIG["features"],
+        CONFIG["n_informative"],
+        CONFIG["min_max_depth"],
+        CONFIG["max_max_depth"],
+    )
 
     results_dict = {}
     for max_depth, preds_commits in tqdm(
@@ -338,24 +371,24 @@ def main():
     ):
         preds = preds_commits["preds"]
         commits = preds_commits["commits"]
-        
+
         chunks = transform_data(commits, preds)
 
         y_true_concat = np.concat([chunk["y_chunk"] for chunk in chunks])
         y_pred_concat = np.concat([chunk["preds_chunk"] for chunk in chunks])
-        
+
         scores = {
             k: scoring(y_true=y_true_concat, y_pred=y_pred_concat, metric=k)
             for k in CONFIG["metrics"]
         }
-        
+
         results_dict[max_depth] = {
             "binary_runs": [],
             "algorithm_runs": [],
             "saved_runs": [],
             "score": scores,
         }
-        
+
         for chunk in chunks:
             y_transformed = chunk["y_transformed"]
 
@@ -363,7 +396,8 @@ def main():
 
             binary_runs, binary_index = binary_search(y_transformed)
             # binary_runs = np.ceil(np.log(len(y_transformed)))
-            if CONFIG["print_detailed_search"]: print("---" * 20)
+            if CONFIG["print_detailed_search"]:
+                print("---" * 20)
 
             # noise_level =(10*np.exp(-0.4*max_depth))/10
 
@@ -377,7 +411,14 @@ def main():
                     y_transformed, chunk["preds_chunk"]
                 )
             # check index similarity
-            assert binary_index == heuristic_index,  f"{binary_index=} != {heuristic_index=}, in " + ' '.join([str((int(i), round(x, 4))) for i, x in enumerate(y_transformed.tolist())])
+            assert (
+                binary_index == heuristic_index
+            ), f"{binary_index=} != {heuristic_index=}, in " + " ".join(
+                [
+                    str((int(i), round(x, 4)))
+                    for i, x in enumerate(y_transformed.tolist())
+                ]
+            )
 
             if CONFIG["print_detailed_search"]:
                 print(f"Size: {np.ceil(np.log(len(y_transformed)))}")
@@ -390,13 +431,21 @@ def main():
                 (binary_runs - heuristic_runs) / (binary_runs - 2)
             )
 
-    pd.DataFrame(results_dict).T.to_pickle(
-        f"results__{CONFIG['algorithm']}.pkl"
-    )
+    out_result_path = f"{CONFIG['algorithm']}__samples_{CONFIG['samples']}__features_{CONFIG['features']}__n_informative_{CONFIG['n_informative']}__min_max_depth_{CONFIG['min_max_depth']}__max_max_depth_{CONFIG['max_max_depth']}.pkl"
+    pd.DataFrame(results_dict).T.to_pickle(os.path.join("results", out_result_path))
+
 
 CONFIG = {
-    "algorithm": "equilibrium",  # equilibrium or hom
-    "metrics": ["b3s", "htp", "f1", "wbce", "recall", "tnr"],  # b3s, htp, f1, precision, recall, tnr, wbce
+    "algorithm": "hom",  # equilibrium or hom
+    "metrics": [
+        "b3s",
+        "htp",
+        "f1",
+        "wbce",
+        "recall",
+        "tnr",
+        "focal",
+    ],  # b3s, htp, f1, precision, recall, tnr, wbce
     "samples": 100000,
     "features": 100,
     "n_informative": 40,
@@ -409,4 +458,9 @@ CONFIG = {
     "epsilon": 1e-8,
 }
 
-main()
+# parallelize get_preds_per_depth function
+n_informatives = list(range(10, 100, 10))
+
+for n_informative in tqdm(n_informatives):
+    CONFIG["n_informative"] = n_informative
+    main()

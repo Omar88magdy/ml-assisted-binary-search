@@ -130,7 +130,7 @@ def hybrid_search(commits, probabilities, alpha):
 
 
 # data generation
-def get_preds_per_depth():
+def get_preds_per_depth(samples, features, n_informative, min_max_depth, max_max_depth):
     samples = CONFIG["samples"]
     features = CONFIG["features"]
     min_max_depth = CONFIG["min_max_depth"]
@@ -243,8 +243,21 @@ def transform_data(y, predictions):
 
 
 def main():
-    data = get_preds_per_depth() 
-    # print(f"No of chunks: {len(chunks)}")
+    samples, features, n_informative, min_max_depth, max_max_depth = (
+        CONFIG["samples"],
+        CONFIG["features"],
+        CONFIG["n_informative"],
+        CONFIG["min_max_depth"],
+        CONFIG["max_max_depth"],
+    )
+
+    data = get_preds_per_depth(
+        samples, features, n_informative, min_max_depth, max_max_depth)
+    
+    for _, data_entries in data.items():
+        preds = data_entries["preds"]
+        commits = data_entries["commits"]
+        chunks = transform_data(commits, preds)
 
     results = []
     for alpha in np.arange(0, 1.05, 0.05): # avoid floating point errors
@@ -306,3 +319,5 @@ CONFIG = {
 
 
 main()
+
+
