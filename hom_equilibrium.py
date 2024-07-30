@@ -459,7 +459,7 @@ CONFIG = {
 }
 
 # parallelize get_preds_per_depth function
-n_informatives = list(range(5, 100, 5))
+n_informatives = list(range(65, 70, 5))
 
 for n_informative in tqdm(n_informatives):
     CONFIG["n_informative"] = n_informative
